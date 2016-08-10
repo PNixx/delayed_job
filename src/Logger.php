@@ -35,6 +35,10 @@ class Logger {
 				exit(127);
 			}
 
+			if( !file_exists($log_file) ) {
+				file_put_contents($log_file, '');
+			}
+
 			$cli->output->add('logger', new File($log_file));
 			$cli->output->defaultTo('logger');
 		}
