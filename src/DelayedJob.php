@@ -9,6 +9,7 @@ class DelayedJob {
 	const TYPE_QUEUE = 'queue';
 	const TYPE_FAILED = 'failed';
 	const TYPE_SUCCESS = 'success';
+	const TYPE_PROCESSING = 'processing';
 
 	/**
 	 * @var string
@@ -94,6 +95,21 @@ class DelayedJob {
 
 	/**
 	 * @param string $queue
+	 * @param array  $data
+	 * @return int
+	 * @throws \Exception
+	 */
+	public static function pushProcess($queue, array $data) {
+		if( empty($data['id']) ) {
+			throw new \Exception('Id process can\'t not be blank');
+		}
+		$data['running_at'] = time();
+
+		return self::redis()->hset(self::key($queue, self::TYPE_PROCESSING), $data['id'], json_encode($data));
+	}
+
+	/**
+	 * @param string $queue
 	 * @param string $type
 	 * @param int    $offset
 	 * @param int    $limit
@@ -101,7 +117,19 @@ class DelayedJob {
 	 * @throws \Exception
 	 */
 	public static function getQueued($queue, $type, $offset = 0, $limit = 20) {
-		return self::redis()->zrange(self::key($queue, $type), $offset, $limit);
+		return array_map(function($v) {
+			return json_decode($v, true);
+		}, self::redis()->zrevrange(self::key($queue, $type), $offset, $limit - 1));
+	}
+
+	/**
+	 * @param $queue
+	 * @return array
+	 */
+	public static function getProcessing($queue) {
+		return array_map(function($v) {
+			return json_decode($v, true);
+		}, self::redis()->hgetall(self::key($queue, self::TYPE_PROCESSING)));
 	}
 
 	/**
@@ -123,10 +151,49 @@ class DelayedJob {
 		$response = self::redis()->zrangebyscore(self::key($queue), 0, $time, ['limit' => [0, 1]]);
 
 		if( $response ) {
-			self::redis()->zrem(self::key($queue), $response[0]);
+			self::remove($queue, $response[0], self::TYPE_QUEUE);
 			return json_decode($response[0], true);
 		}
 
 		return null;
+	}
+
+	/**
+	 * @param string $queue
+	 * @param string $data
+	 * @param string $type
+	 * @return int
+	 */
+	public static function remove($queue, $data, $type) {
+		return self::redis()->zrem(self::key($queue, $type), $data);
+	}
+
+	/**
+	 * @param $queue
+	 * @param $id
+	 * @return int
+	 */
+	public static function removeProcess($queue, $id) {
+		return self::redis()->hdel(self::key($queue, self::TYPE_PROCESSING), [$id]);
+	}
+
+	/**
+	 * @param string $queue
+	 * @param string $type
+	 * @return int|string
+	 */
+	public static function count($queue, $type) {
+		$key = self::key($queue, $type);
+
+		switch($type) {
+
+			//hash
+			case self::TYPE_PROCESSING:
+				return self::redis()->hlen($key);
+
+			//sorted sets
+			default:
+				return self::redis()->zcount($key, '-inf', '+inf');
+		}
 	}
 }

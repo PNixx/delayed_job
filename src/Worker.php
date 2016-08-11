@@ -332,6 +332,9 @@ class Worker {
 				DelayedJob::push($this->queue, $data, DelayedJob::TYPE_FAILED);
 				$this->logger->error(sprintf('Job error: Class "%s" does not found', $data['class']));
 			} else {
+				//save job to processing list
+				DelayedJob::pushProcess($this->queue, $data);
+
 				/** @var Job $class */
 				$class = $data['class'];
 
@@ -359,6 +362,9 @@ class Worker {
 						DelayedJob::push($this->queue, $data, DelayedJob::TYPE_FAILED);
 						$this->logger->error(sprintf('Job %s error: attempts have ended', $data['id']));
 					}
+				} finally {
+					//remove job from processing
+					DelayedJob::removeProcess($this->queue, $data['id']);
 				}
 			}
 
