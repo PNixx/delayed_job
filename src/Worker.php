@@ -349,7 +349,10 @@ class Worker {
 					}
 					$this->logger->info(sprintf('Job %s was completed, pid: %s.', $data['id'], getmypid()));
 				} catch( \Exception $e ) {
-					$time = strtotime('+' . (pow(++$data['attempt'], 0.5) * 60) . ' SECONDS');
+					$time = strtotime('+' . (pow(++$data['attempt'], 0.5) * 30) . ' SECONDS');
+
+					//save error message to job
+					$data['error_message'] = $e->getMessage();
 
 					//retry attempts available
 					if( $class::$attempt == 0 || $data['attempt'] < $class::$attempt ) {
