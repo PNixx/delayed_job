@@ -46,6 +46,12 @@ class Worker {
 	protected $jobs_pid = [];
 
 	/**
+	 * Current job for work process
+	 * @var array
+	 */
+	protected $job;
+
+	/**
 	 * @var array
 	 */
 	protected $signal_queue = [];
@@ -123,6 +129,7 @@ class Worker {
 
 		set_error_handler($this->errorHandler());
 		set_exception_handler($this->exceptionHandler());
+		register_shutdown_function($this->shutdownHandler());
 	}
 
 	/**
@@ -159,6 +166,23 @@ class Worker {
 	public function exceptionHandler() {
 		return function (\Exception $e) {
 			$this->exception($e);
+		};
+	}
+
+	/**
+	 * @return \Closure
+	 */
+	public function shutdownHandler() {
+		return function () {
+			$error = error_get_last();
+			if( $error && $this->job ) {
+
+				//Return to failed queue
+				$this->jobFailed($this->job, $error['message']);
+
+				//Remove from process job
+				DelayedJob::removeProcess($this->queue, $this->job['id']);
+			}
 		};
 	}
 
@@ -321,6 +345,7 @@ class Worker {
 			}
 		} else {
 			DelayedJob::resetConnection();
+			$this->job = $data;
 
 			//send to log
 			$this->logger->info(sprintf('Starting work on (%s | %s | %s, attempt: %d | %s)', $this->queue, $data['id'], $data['class'], $data['attempt'], json_encode($data['data'])));
@@ -349,22 +374,7 @@ class Worker {
 					}
 					$this->logger->info(sprintf('Job %s was completed, pid: %s.', $data['id'], getmypid()));
 				} catch( \Exception $e ) {
-					$time = strtotime('+' . (pow(++$data['attempt'], 0.5) * 30) . ' SECONDS');
-
-					//save error message to job
-					$data['error_message'] = $e->getMessage();
-
-					//retry attempts available
-					if( $class::$attempt == 0 || $data['attempt'] < $class::$attempt ) {
-
-						//return job to redis
-						DelayedJob::push($this->queue, $data, DelayedJob::TYPE_QUEUE, $time);
-						$this->logger->error(sprintf('Job %s error: %s, retry run at %s', $data['id'], $e->getMessage(), date('d.m.Y H:i:s', $time)));
-					} else {
-						//save job to failed list
-						DelayedJob::push($this->queue, $data, DelayedJob::TYPE_FAILED);
-						$this->logger->error(sprintf('Job %s error: attempts have ended', $data['id']));
-					}
+					$this->jobFailed($data, $e->getMessage());
 				} finally {
 					//remove job from processing
 					DelayedJob::removeProcess($this->queue, $data['id']);
@@ -375,5 +385,29 @@ class Worker {
 			exit(0);
 		}
 		return true;
+	}
+
+	/**
+	 * @param $data
+	 * @param $message
+	 */
+	protected function jobFailed($data, $message) {
+		/** @var Job $class */
+		$class = $data['class'];
+
+		//calculate run time
+		$time = strtotime('+' . round(pow(++$data['attempt'], 0.5) * 30) . ' SECONDS');
+
+		//retry attempts available
+		if( $class::$attempt == 0 || $data['attempt'] < $class::$attempt ) {
+
+			//return job to redis
+			DelayedJob::push($this->queue, $data, DelayedJob::TYPE_QUEUE, $time);
+			$this->logger->error(sprintf('Job %s error: %s, retry run at %s', $data['id'], $message, date('d.m.Y H:i:s', $time)));
+		} else {
+			//save job to failed list
+			DelayedJob::push($this->queue, $data, DelayedJob::TYPE_FAILED);
+			$this->logger->error(sprintf('Job %s error: attempts have ended', $data['id']));
+		}
 	}
 }
