@@ -87,6 +87,9 @@ class DelayedJob {
 			case self::TYPE_FAILED:
 				$data['moved_at'] = $timestamp;
 				break;
+			case self::TYPE_QUEUE:
+				$data['planning_at'] = $timestamp;
+				break;
 		}
 
 		//add job

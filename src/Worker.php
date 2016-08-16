@@ -353,9 +353,12 @@ class Worker {
 			//Check existing class
 			if( !class_exists($data['class']) ) {
 
+				//make error message
+				$data['error_message'] = sprintf('Class "%s" does not found', $data['class']);
+
 				//save job to failed list
 				DelayedJob::push($this->queue, $data, DelayedJob::TYPE_FAILED);
-				$this->logger->error(sprintf('Job error: Class "%s" does not found', $data['class']));
+				$this->logger->error(sprintf('Job error: %s', $data['error_message']));
 			} else {
 				//save job to processing list
 				DelayedJob::pushProcess($this->queue, $data);
@@ -401,13 +404,19 @@ class Worker {
 		//retry attempts available
 		if( $class::$attempt == 0 || $data['attempt'] < $class::$attempt ) {
 
+			//make error message
+			$data['error_message'] = sprintf('%s, retry run at %s', $message, date('d.m.Y H:i:s', $time));
+
 			//return job to redis
 			DelayedJob::push($this->queue, $data, DelayedJob::TYPE_QUEUE, $time);
-			$this->logger->error(sprintf('Job %s error: %s, retry run at %s', $data['id'], $message, date('d.m.Y H:i:s', $time)));
 		} else {
+
+			//make error message
+			$data['error_message'] = sprintf('%s, attempts have ended', $message);
+
 			//save job to failed list
 			DelayedJob::push($this->queue, $data, DelayedJob::TYPE_FAILED);
-			$this->logger->error(sprintf('Job %s error: attempts have ended', $data['id']));
 		}
+		$this->logger->error(sprintf('Job %s error: %s', $data['id'], $data['error_message']));
 	}
 }
