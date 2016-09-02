@@ -1,6 +1,7 @@
 {
 	"name": "pnixx/delayed_job",
 	"description": "Delayed Job for PHP",
+	"keywords": ["job", "jobs", "queue", "delayed", "delayed job", "task", "tasks", "redis", "background"],
 	"type": "library",
 	"require": {
 		"php": ">=5.6.0",
