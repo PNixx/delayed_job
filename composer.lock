@@ -4,8 +4,8 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#composer-lock-the-lock-file",
         "This file is @generated automatically"
     ],
-    "hash": "ed380ee6f10bfc725fb02a3eaeb52d2d",
-    "content-hash": "a0e80035c2e06bf4ca375af42c63ded3",
+    "hash": "21872df695243764f292256732cd2ef3",
+    "content-hash": "704f1d5e36c001cc7a119eb4eac58d56",
     "packages": [
         {
             "name": "league/climate",
@@ -57,6 +57,50 @@
                 "terminal"
             ],
             "time": "2016-04-04 20:24:59"
+        },
+        {
+            "name": "pnixx/daemon",
+            "version": "1.0.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/PNixx/daemon-php.git",
+                "reference": "10fe29a7e02df0825c3a3b9b6f77441e58e3ab56"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/PNixx/daemon-php/zipball/10fe29a7e02df0825c3a3b9b6f77441e58e3ab56",
+                "reference": "10fe29a7e02df0825c3a3b9b6f77441e58e3ab56",
+                "shasum": ""
+            },
+            "require": {
+                "ext-pcntl": "*",
+                "league/climate": "^3.2",
+                "php": ">=5.6.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "PNixx\\Daemon\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Sergey Odintsov",
+                    "email": "nixx.dj@gmail.com"
+                }
+            ],
+            "description": "Simple Daemon for PHP",
+            "keywords": [
+                "background",
+                "daemon",
+                "php",
+                "process"
+            ],
+            "time": "2016-09-06 12:04:23"
         },
         {
             "name": "predis/predis",

@@ -5,8 +5,7 @@
 	"type": "library",
 	"require": {
 		"php": ">=5.6.0",
-		"ext-pcntl": "*",
-		"league/climate": "^3.2",
+		"pnixx/daemon": "^1.0",
 		"predis/predis": "^1.1"
 	},
 	"license": "MIT",
