@@ -1,20 +1,20 @@
 <?php
 namespace PNixx\DelayedJob;
 
-class Cli extends \PNixx\Daemon\Cli  {
+use League\CLImate\CLImate;
+
+class Cli extends CLImate  {
 
 	/**
 	 * Cli constructor.
 	 */
 	public function __construct() {
 		parent::__construct();
-
 		$this->init();
 		$this->arguments->parse();
 	}
 
-	protected function init() {
-		parent::init();
+	protected function init(): void {
 		$this->arguments->add([
 			'queue'   => [
 				'prefix'       => 'q',
@@ -31,11 +31,22 @@ class Cli extends \PNixx\Daemon\Cli  {
 				'prefix'       => 's',
 				'longPrefix'   => 'server',
 				'description'  => 'Parameter string for connection Redis server.',
-				'defaultValue' => DelayedJob::getRedisServer(),
+				'defaultValue' => '127.0.0.1:6379',
 			],
 			'save'    => [
 				'longPrefix'  => 'save',
 				'description' => 'Save successful jobs in the success list',
+				'noValue'     => true,
+			],
+			'init'    => [
+				'prefix'       => 'i',
+				'longPrefix'  => 'init',
+				'description' => 'Path to autoload.php file',
+			],
+			'help'      => [
+				'prefix'      => 'h',
+				'longPrefix'  => 'help',
+				'description' => 'Prints a usage statement',
 				'noValue'     => true,
 			],
 		]);

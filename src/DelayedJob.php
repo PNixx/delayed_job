@@ -1,7 +1,7 @@
 <?php
 namespace PNixx\DelayedJob;
 
-use Predis\Client;
+use Workerman\Redis\Client;
 
 class DelayedJob {
 
@@ -11,34 +11,15 @@ class DelayedJob {
 	const TYPE_SUCCESS = 'success';
 	const TYPE_PROCESSING = 'processing';
 
-	/**
-	 * @var string
-	 */
-	protected static $redis_server = 'tcp://localhost:6379?read_write_timeout=-1';
+	protected readonly Client $redis;
+	protected static DelayedJob $instance;
 
 	/**
-	 * @var Client
+	 * @param string $host
 	 */
-	protected static $redis;
-
-	/**
-	 * Reset Redis connection for new fork
-	 */
-	public static function resetConnection() {
-		self::$redis = null;
-	}
-
-	/**
-	 * @return Client
-	 */
-	public static function redis() {
-		if( !self::$redis ) {
-
-			//initialize redis client
-			self::$redis = new Client(self::$redis_server);
-		}
-
-		return self::$redis;
+	public function __construct(string $host) {
+		$this->redis = new Client('redis://' . $host);
+		self::$instance = $this;
 	}
 
 	/**
@@ -46,22 +27,8 @@ class DelayedJob {
 	 * @param string $type
 	 * @return string
 	 */
-	protected static function key($queue, $type = self::TYPE_QUEUE) {
+	protected static function key(string $queue, string $type = self::TYPE_QUEUE): string {
 		return 'job:' . $queue . ':' . $type;
-	}
-
-	/**
-	 * @param $server
-	 */
-	public static function setRedisServer($server) {
-		self::$redis_server = $server;
-	}
-
-	/**
-	 * @return string
-	 */
-	public static function getRedisServer() {
-		return self::$redis_server;
 	}
 
 	/**
@@ -71,7 +38,7 @@ class DelayedJob {
 	 * @param null   $timestamp
 	 * @return bool
 	 */
-	public static function push($queue, array $data, $type, $timestamp = null) {
+	public static function push(string $queue, array $data, string $type, $timestamp = null): bool {
 
 		if( !$timestamp ) {
 			$timestamp = time();
@@ -81,8 +48,8 @@ class DelayedJob {
 			$data['id'] = md5(uniqid());
 		}
 
-		//save moved time
-		switch($type) {
+		//Save moved time
+		switch( $type ) {
 			case self::TYPE_SUCCESS:
 			case self::TYPE_FAILED:
 				$data['moved_at'] = $timestamp;
@@ -92,8 +59,8 @@ class DelayedJob {
 				break;
 		}
 
-		//add job
-		return (bool)self::redis()->zadd(self::key($queue, $type), ...[$timestamp, json_encode($data)]);
+		//Add job
+		return self::$instance->redis->zAdd(self::key($queue, $type), $timestamp, json_encode($data));
 	}
 
 	/**
@@ -102,13 +69,13 @@ class DelayedJob {
 	 * @return int
 	 * @throws \Exception
 	 */
-	public static function pushProcess($queue, array $data) {
+	public static function pushProcess(string $queue, array $data): int {
 		if( empty($data['id']) ) {
 			throw new \Exception('Id process can\'t not be blank');
 		}
 		$data['running_at'] = time();
 
-		return self::redis()->hset(self::key($queue, self::TYPE_PROCESSING), $data['id'], json_encode($data));
+		return self::$instance->redis->hSet(self::key($queue, self::TYPE_PROCESSING), $data['id'], json_encode($data));
 	}
 
 	/**
@@ -117,41 +84,36 @@ class DelayedJob {
 	 * @param int    $offset
 	 * @param int    $limit
 	 * @return array
-	 * @throws \Exception
 	 */
-	public static function getQueued($queue, $type, $offset = 0, $limit = 20) {
-		return array_map(function($v) {
-			return json_decode($v, true);
-		}, self::redis()->zrevrange(self::key($queue, $type), $offset, $limit - 1));
+	public static function getQueued(string $queue, string $type, int $offset = 0, int $limit = 20): array {
+		return array_map(fn($v) => json_decode($v, true), self::$instance->redis->zRevRange(self::key($queue, $type), $offset, $limit - 1));
 	}
 
 	/**
-	 * @param $queue
+	 * @param string $queue
 	 * @return array
 	 */
-	public static function getProcessing($queue) {
-		return array_map(function($v) {
-			return json_decode($v, true);
-		}, self::redis()->hgetall(self::key($queue, self::TYPE_PROCESSING)));
+	public static function getProcessing(string $queue): array {
+		return array_map(fn($v) => json_decode($v, true), self::$instance->redis->hGetAll(self::key($queue, self::TYPE_PROCESSING)));
 	}
 
 	/**
 	 * Remove all objects int the list
-	 * @param $queue
-	 * @param $type
+	 * @param string $queue
+	 * @param string $type
 	 */
-	public static function clear($queue, $type) {
-		self::redis()->zremrangebyscore(self::key($queue, $type), '-inf', '+inf');
+	public static function clear(string $queue, string $type): void {
+		self::$instance->redis->zRemRangeByScore(self::key($queue, $type), '-inf', '+inf');
 	}
 
 	/**
 	 * @param $queue
 	 * @return array|null
 	 */
-	public static function getJob($queue) {
+	public static function getJob($queue): ?array {
 		$time = time();
 
-		$response = self::redis()->zrangebyscore(self::key($queue), 0, $time, ['limit' => [0, 1]]);
+		$response = self::$instance->redis->zRangeByScore(self::key($queue), 0, $time, ['LIMIT', '0', '1']);
 
 		if( $response ) {
 			self::remove($queue, $response[0], self::TYPE_QUEUE);
@@ -167,17 +129,17 @@ class DelayedJob {
 	 * @param string $type
 	 * @return int
 	 */
-	public static function remove($queue, $data, $type) {
-		return self::redis()->zrem(self::key($queue, $type), $data);
+	public static function remove(string $queue, string $data, string $type): int {
+		return self::$instance->redis->zRem(self::key($queue, $type), $data);
 	}
 
 	/**
-	 * @param $queue
-	 * @param $id
+	 * @param string $queue
+	 * @param string $id
 	 * @return int
 	 */
-	public static function removeProcess($queue, $id) {
-		return self::redis()->hdel(self::key($queue, self::TYPE_PROCESSING), [$id]);
+	public static function removeProcess(string $queue, string $id): int {
+		return self::$instance->redis->hDel(self::key($queue, self::TYPE_PROCESSING), $id);
 	}
 
 	/**
@@ -185,18 +147,12 @@ class DelayedJob {
 	 * @param string $type
 	 * @return int|string
 	 */
-	public static function count($queue, $type) {
+	public static function count(string $queue, string $type): int|string {
 		$key = self::key($queue, $type);
 
-		switch($type) {
-
-			//hash
-			case self::TYPE_PROCESSING:
-				return self::redis()->hlen($key);
-
-			//sorted sets
-			default:
-				return self::redis()->zcount($key, '-inf', '+inf');
-		}
+		return match ($type) {
+			self::TYPE_PROCESSING => self::$instance->redis->hLen($key),
+			default => self::$instance->redis->zCount($key, '-inf', '+inf'),
+		};
 	}
 }

@@ -30,6 +30,9 @@ $cli = new Cli;
 if( $cli->arguments->get('help') ) {
 	$cli->usage();
 } else {
-	$worker = new Worker($cli);
-	$worker->run();
+	if( $cli->arguments->get('init') ) {
+		require_once $cli->arguments->get('init');
+	}
+	$worker = new Worker($cli->arguments->get('server'), $cli->arguments->get('queue'), $cli->arguments->get('process'), $cli->arguments->get('save'));
+	Worker::runAll();
 }

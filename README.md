@@ -4,7 +4,7 @@ Simple, efficient background processing for PHP uses threads to handle many jobs
 
 ##Requirements
 
-* PHP 5.6+
+* PHP 8.1+
 * Redis 2.2+
 * Composer
 
@@ -19,13 +19,13 @@ composer require pnixx/delayed_job
 Simple run worker process in background:
 
 ```sh
-bin/run --quiet
+bin/run start
 ```
 
 Extend run worker process:
 
 ```sh
-bin/run --process 5 --queue mailer -i /path/to/init.php --log_level debug --quiet
+bin/run start --process 5 --queue mailer -i /path/to/init.php
 ```
 
 For list all commands, please use `--help` or `-h` argument.
