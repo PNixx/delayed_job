@@ -3,6 +3,8 @@ namespace PNixx\DelayedJob;
 
 use Psr\Log\LoggerInterface;
 use Revolt\EventLoop;
+use Workerman\Events\Fiber;
+use Workerman\Redis\Client;
 
 class Worker extends \Workerman\Worker {
 
@@ -13,7 +15,9 @@ class Worker extends \Workerman\Worker {
 	 * Current job for work process
 	 * @var array
 	 */
-	protected array $job = [];
+	protected array $jobs = [];
+	protected bool $lock = false;
+	protected Client $client;
 
 	/**
 	 * Worker constructor.
@@ -25,6 +29,7 @@ class Worker extends \Workerman\Worker {
 	 */
 	public function __construct(protected readonly string $redis_host, protected readonly string $queue, protected readonly int $max_processes, protected readonly bool $save = false, protected ?LoggerInterface $logger = null) {
 		parent::__construct();
+		self::$eventLoopClass = Fiber::class;
 		$this->onWorkerStart = [$this, 'onWorkerStarted'];
 		$this->onWorkerStop = [$this, 'onWorkerStopped'];
 	}
@@ -48,14 +53,25 @@ class Worker extends \Workerman\Worker {
 
 	/**
 	 * Receives and processes one task
-	 * @return void
 	 */
 	public function fetchJob(): void {
-		if( self::$status == self::STATUS_RUNNING && count($this->job) < $this->max_processes ) {
-			//Get first job data
-			$data = DelayedJob::getJob($this->queue);
-			if( $data ) {
-				$this->runJob($data);
+		if( self::$status == self::STATUS_RUNNING && !$this->lock ) {
+			$this->lock = true;
+			try {
+				while( count($this->jobs) < $this->max_processes ) {
+
+					//Get job data
+					$data = DelayedJob::getJob($this->queue);
+					if( !$data ) {
+						break;
+					}
+
+					//Async execute
+					$this->jobs[$data['id']] = null;
+					EventLoop::defer(fn() => $this->runJob($data));
+				}
+			} finally {
+				$this->lock = false;
 			}
 		}
 	}
@@ -65,13 +81,23 @@ class Worker extends \Workerman\Worker {
 	 */
 	public function onWorkerStopped(): void {
 		$error = error_get_last();
-		if( $error && $this->job ) {
+		if( $error && $this->jobs ) {
 
 			//Return to failed queue
-			$this->jobFailed($this->job, $error['message']);
+			foreach( $this->jobs as $job ) {
+				if( is_array($job) ) {
+					$this->jobFailed($job, $error['message']);
+				}
+			}
 
 			//Remove from process job
-			DelayedJob::removeProcess($this->queue, $this->job['id']);
+			DelayedJob::removeProcess($this->queue, $this->jobs['id']);
+		} else {
+			while( $this->jobs ) {
+				$suspension = EventLoop::getSuspension();
+				EventLoop::delay(.2, fn() => $suspension->resume());
+				$suspension->suspend();
+			}
 		}
 	}
 
@@ -82,40 +108,43 @@ class Worker extends \Workerman\Worker {
 
 		//Send to log
 		$this->logger?->info(sprintf('Starting work on (%s | %s | %s, attempt: %d | %s)', $this->queue, $data['id'], $data['class'], $data['attempt'], json_encode($data['data'])));
+		try {
 
-		//Check existing class
-		if( !class_exists($data['class']) ) {
+			//Check existing class
+			if( !class_exists($data['class']) ) {
 
-			//Make error message
-			$data['error_message'] = sprintf('Class "%s" not found', $data['class']);
+				//Make error message
+				$data['error_message'] = 'Class "' . $data['class'] . '" not found';
 
-			//Save job to failed list
-			DelayedJob::push($this->queue, $data, DelayedJob::TYPE_FAILED);
-			$this->logger?->error(sprintf('Job error: %s', $data['error_message']));
-		} else {
-			/** @var Job $class */
-			$class = $data['class'];
-			$job = new $class;
-			$this->job[$data['id']] = $job;
-			try {
-				//Save job to processing list
-				DelayedJob::pushProcess($this->queue, $data);
+				//Save job to failed list
+				DelayedJob::push($this->queue, $data, DelayedJob::TYPE_FAILED);
+				$this->logger?->error('Job error: ' . $data['error_message']);
+			} else {
+				/** @var Job $class */
+				$class = $data['class'];
+				$job = new $class;
+				$this->jobs[$data['id']] = $data;
+				try {
+					//Save job to processing list
+					DelayedJob::pushProcess($this->queue, $data);
 
-				//Run job
-				$job->now($data['data']);
+					//Run job
+					$job->now($data['data']);
 
-				//Save to success list
-				if( $this->save ) {
-					DelayedJob::push($this->queue, $data, DelayedJob::TYPE_SUCCESS);
+					//Save to success list
+					if( $this->save ) {
+						DelayedJob::push($this->queue, $data, DelayedJob::TYPE_SUCCESS);
+					}
+					$this->logger?->info(sprintf('Job %s was completed, pid: %s.', $data['id'], getmypid()));
+				} catch (\Throwable $e) {
+					$this->jobFailed($data, $e::class . ': ' . $e->getMessage());
+				} finally {
+					//Remove job from processing
+					DelayedJob::removeProcess($this->queue, $data['id']);
 				}
-				$this->logger?->info(sprintf('Job %s was completed, pid: %s.', $data['id'], getmypid()));
-			} catch (\Exception $e) {
-				$this->jobFailed($data, $e::class . ': ' . $e->getMessage());
-			} finally {
-				//Remove job from processing
-				unset($this->job[$data['id']]);
-				DelayedJob::removeProcess($this->queue, $data['id']);
 			}
+		} finally {
+			unset($this->jobs[$data['id']]);
 		}
 	}
 
@@ -126,22 +155,23 @@ class Worker extends \Workerman\Worker {
 	protected function jobFailed(array $data, string $message): void {
 		/** @var Job $class */
 		$class = $data['class'];
-
-		//Calculate run time
-		$time = strtotime('+' . round(pow(++$data['attempt'], 0.5) * 30) . ' SECONDS');
+		$data['attempt']++;
 
 		//retry attempts available
 		if( $class::$attempt == 0 || $data['attempt'] < $class::$attempt ) {
 
+			//Calculate run time
+			$time = strtotime('+' . ceil(pow($data['attempt'], 1.5)) . ' SECONDS');
+
 			//make error message
-			$data['error_message'] = sprintf('%s, retry run at %s', $message, date('d.m.Y H:i:s', $time));
+			$data['error_message'] = $message . ', retry run at ' . date('Y-m-d H:i:s', $time);
 
 			//return job to redis
 			DelayedJob::push($this->queue, $data, DelayedJob::TYPE_QUEUE, $time);
 		} else {
 
 			//make error message
-			$data['error_message'] = sprintf('%s, attempts have ended', $message);
+			$data['error_message'] = $message . ', attempts have ended';
 
 			//save job to failed list
 			DelayedJob::push($this->queue, $data, DelayedJob::TYPE_FAILED);

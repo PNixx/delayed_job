@@ -4,6 +4,12 @@ namespace PNixx\DelayedJob;
 abstract class Job {
 
 	/**
+	 * Queue for publishing Job
+	 * @var string
+	 */
+	public static string $queue = Worker::DEFAULT_QUEUE;
+
+	/**
 	 * Attempt count used for only delayed tasks
 	 * default: 0 - always repeat until it reach success
 	 * @var int
@@ -19,7 +25,7 @@ abstract class Job {
 	 * Working
 	 * @param array $args
 	 */
-	public abstract function perform(array $args = []);
+	public abstract function perform(array $args = []): void;
 
 	/**
 	 * Run after success finish job
@@ -27,13 +33,11 @@ abstract class Job {
 	public function completed() {}
 
 	/**
-	 * @param string   $queue
 	 * @param array    $args
 	 * @param int|null $run_at
-	 * @return bool
 	 */
-	final public static function later(string $queue, array $args = [], int $run_at = null): bool {
-		return DelayedJob::push($queue, [
+	final public static function later(array $args = [], ?int $run_at = null): void {
+		DelayedJob::push(static::$queue, [
 			'class'      => static::class,
 			'attempt'    => 0,
 			'created_at' => time(),

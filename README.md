@@ -1,20 +1,20 @@
-#Delayed Job PHP
+# Delayed Job PHP
 
 Simple, efficient background processing for PHP uses threads to handle many jobs.
 
-##Requirements
+## Requirements
 
 * PHP 8.1+
 * Redis 2.2+
 * Composer
 
-##Installation
+## Installation
 
 ```sh
 composer require pnixx/delayed_job
 ```
 
-##Worker process
+## Worker process
 
 Simple run worker process in background:
 
@@ -32,14 +32,14 @@ For list all commands, please use `--help` or `-h` argument.
 
 For restart process after deploy use `--restart` or `-r` argument. A new process will be waiting finish all running processes.
 
-##Jobs
+## Jobs
 
 Job class required include `perform` method:
 
 ```php
 class TestJob extends PNixx\DelayedJob\Job {
 
-	public function perform($args = []) {
+	public function perform($args = []): void {
 		//Work process
 	}
 }
@@ -55,6 +55,11 @@ The `completed` method will be called after success job.
 class TestJob extends PNixx\DelayedJob\Job {
 
 	/**
+	 * Queue for publishing Job
+	 */
+	public static string $queue = 'mailer';
+	
+	/**
 	 * Attempt count used for only delayed tasks
 	 * default: 0 - always repeat until it reach success
 	 */
@@ -64,7 +69,7 @@ class TestJob extends PNixx\DelayedJob\Job {
 		//Setup this job
 	}
 
-	public function perform($args = []) {
+	public function perform($args = []): void {
 		//Work process
 	}
 
@@ -74,7 +79,7 @@ class TestJob extends PNixx\DelayedJob\Job {
 }
 ```
 
-##Queueing jobs
+## Queueing jobs
 
 Jobs can run in current thread uses `now` method. If you use this, you can handle the exceptions in a job failing.
 
@@ -90,20 +95,20 @@ Jobs can run in a background thread or add to scheduler.
 
 ```php
 //Run job in a background
-TestJob::later('mailer');
+TestJob::later();
 
 //Run job in a background with arguments
-TestJob::later('mailer', ['name' => 'Jane']);
+TestJob::later(['name' => 'Jane']);
 
 //Add job in a scheduler.
-TestJob::later('mailer', ['name' => 'Jane'], strtotime('+1 day'));
+TestJob::later(['name' => 'Jane'], strtotime('+1 day'));
 ```
 
-##Signals
+## Signals
 
 * `QUIT` - Wait for job to finish processing then exit
 * `TERM` / `INT` - Immediately kill job then exit without saving data
 
-##Author
+## Author
 
 Sergey Odintsov, [@pnixx](https://new.vk.com/djnixx)

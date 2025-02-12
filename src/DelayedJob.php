@@ -3,7 +3,7 @@ namespace PNixx\DelayedJob;
 
 use Workerman\Redis\Client;
 
-class DelayedJob {
+final class DelayedJob {
 
 	//Job types
 	const TYPE_QUEUE = 'queue';
@@ -11,14 +11,14 @@ class DelayedJob {
 	const TYPE_SUCCESS = 'success';
 	const TYPE_PROCESSING = 'processing';
 
-	protected readonly Client $redis;
+	protected readonly Client $client;
 	protected static DelayedJob $instance;
 
 	/**
 	 * @param string $host
 	 */
 	public function __construct(string $host) {
-		$this->redis = new Client('redis://' . $host);
+		$this->client = new Client('redis://' . $host);
 		self::$instance = $this;
 	}
 
@@ -27,7 +27,7 @@ class DelayedJob {
 	 * @param string $type
 	 * @return string
 	 */
-	protected static function key(string $queue, string $type = self::TYPE_QUEUE): string {
+	public static function key(string $queue, string $type = self::TYPE_QUEUE): string {
 		return 'job:' . $queue . ':' . $type;
 	}
 
@@ -36,9 +36,8 @@ class DelayedJob {
 	 * @param array  $data
 	 * @param string $type
 	 * @param null   $timestamp
-	 * @return bool
 	 */
-	public static function push(string $queue, array $data, string $type, $timestamp = null): bool {
+	public static function push(string $queue, array $data, string $type, $timestamp = null): void {
 
 		if( !$timestamp ) {
 			$timestamp = time();
@@ -60,7 +59,7 @@ class DelayedJob {
 		}
 
 		//Add job
-		return self::$instance->redis->zAdd(self::key($queue, $type), $timestamp, json_encode($data));
+		self::$instance->client->zAdd(self::key($queue, $type), $timestamp, json_encode($data));
 	}
 
 	/**
@@ -75,7 +74,7 @@ class DelayedJob {
 		}
 		$data['running_at'] = time();
 
-		return self::$instance->redis->hSet(self::key($queue, self::TYPE_PROCESSING), $data['id'], json_encode($data));
+		return self::$instance->client->hSet(self::key($queue, self::TYPE_PROCESSING), $data['id'], json_encode($data));
 	}
 
 	/**
@@ -86,7 +85,7 @@ class DelayedJob {
 	 * @return array
 	 */
 	public static function getQueued(string $queue, string $type, int $offset = 0, int $limit = 20): array {
-		return array_map(fn($v) => json_decode($v, true), self::$instance->redis->zRevRange(self::key($queue, $type), $offset, $limit - 1));
+		return array_map(fn($v) => json_decode($v, true), self::$instance->client->zRevRange(self::key($queue, $type), $offset, $limit - 1));
 	}
 
 	/**
@@ -94,7 +93,7 @@ class DelayedJob {
 	 * @return array
 	 */
 	public static function getProcessing(string $queue): array {
-		return array_map(fn($v) => json_decode($v, true), self::$instance->redis->hGetAll(self::key($queue, self::TYPE_PROCESSING)));
+		return array_map(fn($v) => json_decode($v, true), self::$instance->client->hGetAll(self::key($queue, self::TYPE_PROCESSING)));
 	}
 
 	/**
@@ -103,7 +102,7 @@ class DelayedJob {
 	 * @param string $type
 	 */
 	public static function clear(string $queue, string $type): void {
-		self::$instance->redis->zRemRangeByScore(self::key($queue, $type), '-inf', '+inf');
+		self::$instance->client->zRemRangeByScore(self::key($queue, $type), '-inf', '+inf');
 	}
 
 	/**
@@ -113,8 +112,7 @@ class DelayedJob {
 	public static function getJob($queue): ?array {
 		$time = time();
 
-		$response = self::$instance->redis->zRangeByScore(self::key($queue), 0, $time, ['LIMIT', '0', '1']);
-
+		$response = self::$instance->client->zRangeByScore(self::key($queue), 0, $time, ['LIMIT', '0', '1']);
 		if( $response ) {
 			self::remove($queue, $response[0], self::TYPE_QUEUE);
 			return json_decode($response[0], true);
@@ -130,7 +128,7 @@ class DelayedJob {
 	 * @return int
 	 */
 	public static function remove(string $queue, string $data, string $type): int {
-		return self::$instance->redis->zRem(self::key($queue, $type), $data);
+		return self::$instance->client->zRem(self::key($queue, $type), $data);
 	}
 
 	/**
@@ -139,7 +137,7 @@ class DelayedJob {
 	 * @return int
 	 */
 	public static function removeProcess(string $queue, string $id): int {
-		return self::$instance->redis->hDel(self::key($queue, self::TYPE_PROCESSING), $id);
+		return self::$instance->client->hDel(self::key($queue, self::TYPE_PROCESSING), $id);
 	}
 
 	/**
@@ -151,8 +149,8 @@ class DelayedJob {
 		$key = self::key($queue, $type);
 
 		return match ($type) {
-			self::TYPE_PROCESSING => self::$instance->redis->hLen($key),
-			default => self::$instance->redis->zCount($key, '-inf', '+inf'),
+			self::TYPE_PROCESSING => self::$instance->client->hLen($key),
+			default => self::$instance->client->zCount($key, '-inf', '+inf'),
 		};
 	}
 }
