@@ -4,7 +4,6 @@ namespace PNixx\DelayedJob;
 use Psr\Log\LoggerInterface;
 use Revolt\EventLoop;
 use Workerman\Events\Fiber;
-use Workerman\Redis\Client;
 
 class Worker extends \Workerman\Worker {
 
@@ -17,7 +16,6 @@ class Worker extends \Workerman\Worker {
 	 */
 	protected array $jobs = [];
 	protected bool $lock = false;
-	protected Client $client;
 
 	/**
 	 * Worker constructor.

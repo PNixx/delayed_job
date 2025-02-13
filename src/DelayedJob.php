@@ -1,7 +1,10 @@
 <?php
 namespace PNixx\DelayedJob;
 
-use Workerman\Redis\Client;
+use Amp\Redis\Command\Boundary\ScoreBoundary;
+use Amp\Redis\Command\Option\RangeOptions;
+use Amp\Redis\RedisClient;
+use function Amp\Redis\createRedisClient;
 
 final class DelayedJob {
 
@@ -11,14 +14,14 @@ final class DelayedJob {
 	const TYPE_SUCCESS = 'success';
 	const TYPE_PROCESSING = 'processing';
 
-	protected readonly Client $client;
+	protected readonly RedisClient $client;
 	protected static DelayedJob $instance;
 
 	/**
 	 * @param string $host
 	 */
 	public function __construct(string $host) {
-		$this->client = new Client('redis://' . $host);
+		$this->client = createRedisClient('tcp://' . $host);
 		self::$instance = $this;
 	}
 
@@ -32,12 +35,12 @@ final class DelayedJob {
 	}
 
 	/**
-	 * @param string $queue
-	 * @param array  $data
-	 * @param string $type
-	 * @param null   $timestamp
+	 * @param string   $queue
+	 * @param array    $data
+	 * @param string   $type
+	 * @param int|null $timestamp
 	 */
-	public static function push(string $queue, array $data, string $type, $timestamp = null): void {
+	public static function push(string $queue, array $data, string $type, ?int $timestamp = null): void {
 
 		if( !$timestamp ) {
 			$timestamp = time();
@@ -59,7 +62,7 @@ final class DelayedJob {
 		}
 
 		//Add job
-		self::$instance->client->zAdd(self::key($queue, $type), $timestamp, json_encode($data));
+		self::$instance->client->getSortedSet(self::key($queue, $type))->add([json_encode($data, JSON_UNESCAPED_UNICODE) => $timestamp]);
 	}
 
 	/**
@@ -74,7 +77,7 @@ final class DelayedJob {
 		}
 		$data['running_at'] = time();
 
-		return self::$instance->client->hSet(self::key($queue, self::TYPE_PROCESSING), $data['id'], json_encode($data));
+		return self::$instance->client->getMap(self::key($queue, self::TYPE_PROCESSING))->setValue($data['id'], json_encode($data, JSON_UNESCAPED_UNICODE));
 	}
 
 	/**
@@ -85,7 +88,8 @@ final class DelayedJob {
 	 * @return array
 	 */
 	public static function getQueued(string $queue, string $type, int $offset = 0, int $limit = 20): array {
-		return array_map(fn($v) => json_decode($v, true), self::$instance->client->zRevRange(self::key($queue, $type), $offset, $limit - 1));
+		$options = (new RangeOptions())->withReverseOrder();
+		return array_map(fn($v) => json_decode($v, true), self::$instance->client->getSortedSet(self::key($queue, $type))->getRange($offset, $limit - 1, $options));
 	}
 
 	/**
@@ -93,7 +97,7 @@ final class DelayedJob {
 	 * @return array
 	 */
 	public static function getProcessing(string $queue): array {
-		return array_map(fn($v) => json_decode($v, true), self::$instance->client->hGetAll(self::key($queue, self::TYPE_PROCESSING)));
+		return array_map(fn($v) => json_decode($v, true), self::$instance->client->getMap(self::key($queue, self::TYPE_PROCESSING))->getAll());
 	}
 
 	/**
@@ -102,7 +106,7 @@ final class DelayedJob {
 	 * @param string $type
 	 */
 	public static function clear(string $queue, string $type): void {
-		self::$instance->client->zRemRangeByScore(self::key($queue, $type), '-inf', '+inf');
+		self::$instance->client->getSortedSet(self::key($queue, $type))->removeRangeByScore(ScoreBoundary::negativeInfinity(), ScoreBoundary::positiveInfinity());
 	}
 
 	/**
@@ -112,7 +116,8 @@ final class DelayedJob {
 	public static function getJob($queue): ?array {
 		$time = time();
 
-		$response = self::$instance->client->zRangeByScore(self::key($queue), 0, $time, ['LIMIT', '0', '1']);
+		$options = (new RangeOptions())->withLimit(0, 1);
+		$response = self::$instance->client->getSortedSet(self::key($queue))->getRangeByScore(ScoreBoundary::inclusive(0), ScoreBoundary::inclusive($time), $options);
 		if( $response ) {
 			self::remove($queue, $response[0], self::TYPE_QUEUE);
 			return json_decode($response[0], true);
@@ -128,7 +133,7 @@ final class DelayedJob {
 	 * @return int
 	 */
 	public static function remove(string $queue, string $data, string $type): int {
-		return self::$instance->client->zRem(self::key($queue, $type), $data);
+		return self::$instance->client->getSortedSet(self::key($queue, $type))->remove($data);
 	}
 
 	/**
@@ -137,7 +142,7 @@ final class DelayedJob {
 	 * @return int
 	 */
 	public static function removeProcess(string $queue, string $id): int {
-		return self::$instance->client->hDel(self::key($queue, self::TYPE_PROCESSING), $id);
+		return self::$instance->client->getMap(self::key($queue, self::TYPE_PROCESSING))->remove($id);
 	}
 
 	/**
@@ -149,8 +154,8 @@ final class DelayedJob {
 		$key = self::key($queue, $type);
 
 		return match ($type) {
-			self::TYPE_PROCESSING => self::$instance->client->hLen($key),
-			default => self::$instance->client->zCount($key, '-inf', '+inf'),
+			self::TYPE_PROCESSING => self::$instance->client->getMap($key)->getSize(),
+			default => self::$instance->client->getSortedSet($key)->getSize(),
 		};
 	}
 }

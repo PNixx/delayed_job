@@ -51,7 +51,7 @@ class WorkerTest extends Base {
 			public static int $attempt = 1;
 			public function perform(array $args = []): void {
 				$suspension = EventLoop::getSuspension();
-				EventLoop::delay(.1, fn() => $suspension->resume());
+				EventLoop::delay(.01, fn() => $suspension->resume());
 				$suspension->suspend();
 			}
 		};
