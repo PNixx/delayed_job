@@ -174,6 +174,6 @@ class Worker extends \Workerman\Worker {
 			//save job to failed list
 			DelayedJob::push($this->queue, $data, DelayedJob::TYPE_FAILED);
 		}
-		$this->logger?->error(sprintf('Job %s error: %s', $data['id'], $data['error_message']));
+		$this->logger?->error(sprintf('[%s] Job %s error: %s', $class, $data['id'], $data['error_message']));
 	}
 }
